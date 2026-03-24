@@ -11,7 +11,7 @@ The first-stage client is implemented in client/src/app.py.
 
 ### Run
 
-1. Edit request target and request line in client/resource/config.py.
+1. Edit request target and request line in client/src/config.py.
 2. Start one client instance in one terminal:
 
 python3 -m client.src.app

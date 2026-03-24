@@ -24,12 +24,12 @@ Not yet implemented in first stage:
 ## Project Structure
 
 - server/src: server-side source code.
-- server/resource: server resource files and configuration.
+- server/src/config.py: server configuration.
 - client/src: client-side source code.
 
 ## Run
 
-1. Edit server configuration in server/resource/config.py.
+1. Edit server configuration in server/src/config.py.
 2. Start server from project root:
 
 python3 -m server.src.app
@@ -52,7 +52,7 @@ Then check server output and configured log file for request records.
 
 ## Client First Stage
 
-The first-stage client is in client/src/app.py and uses client/resource/config.py.
+The first-stage client is in client/src/app.py and uses client/src/config.py.
 
 Run one client in one terminal:
 

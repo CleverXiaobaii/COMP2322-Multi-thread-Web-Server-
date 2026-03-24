@@ -6,20 +6,6 @@ import socket
 from pathlib import Path
 
 
-def load_client_config() -> dict:
-    config_path = Path(__file__).resolve().parent.parent / "resource" / "config.py"
-    if not config_path.exists():
-        raise FileNotFoundError(f"Config file not found: {config_path}")
-
-    spec = importlib.util.spec_from_file_location("client_resource_config", config_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Unable to load config module: {config_path}")
-
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.CLIENT_CONFIG
-
-
 def build_request(cfg: dict) -> bytes:
     method = cfg["method"]
     path = cfg["path"]
@@ -72,10 +58,17 @@ def print_response(raw_response: bytes) -> None:
 
 
 def main() -> int:
+    project_root = Path(__file__).resolve().parents[2]
+    config_path = project_root / "client" / "src" / "config.py"
     try:
-        cfg = load_client_config()
-    except Exception as exc:
-        print(f"[Client] Failed to load config: {exc}")
+        spec = importlib.util.spec_from_file_location("client_src_config", config_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("invalid spec")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        cfg = module.CLIENT_CONFIG
+    except Exception:
+        print("config加载失败")
         return 1
 
     host = cfg["host"]
