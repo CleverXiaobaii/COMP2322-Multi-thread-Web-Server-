@@ -1,0 +1,4 @@
+Welcome to the COMP2322 server.
+Use GET /data to view all records.
+Use GET /data/<key> to query one record.
+Type quit on client side to exit.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import json
 import threading
+from http import HTTPStatus
 from email.utils import format_datetime, parsedate_to_datetime
 from pathlib import Path
 
@@ -11,7 +12,9 @@ LOG_LOCK = threading.Lock()
 DATA_LOCK = threading.Lock()
 
 
-def write_log(log_path: Path, client_ip: str, client_port: int, request_line: str, status: int) -> None:
+def write_log(log_path: Path, client_ip: str, client_port: int, request_line: str, status_code: int) -> None:
+    reason = HTTPStatus(status_code).phrase if status_code in HTTPStatus._value2member_map_ else "Unknown"
+    status = f"{status_code} {reason}"
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_line = f'{timestamp} {client_ip}:{client_port} "{request_line}" {status}\n'
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -57,3 +60,7 @@ def format_last_modified(data_path: Path) -> str:
         datetime.datetime.fromtimestamp(data_path.stat().st_mtime, tz=datetime.timezone.utc),
         usegmt=True,
     )
+
+
+def read_instruction(instruction_path: Path) -> str:
+    return instruction_path.read_text(encoding="utf-8")

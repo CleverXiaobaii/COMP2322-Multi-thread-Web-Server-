@@ -5,13 +5,19 @@ import importlib.util
 import socket
 import threading
 from pathlib import Path
-from .storage_utils import ensure_data_file
-from .request_handler import handle_client
+
+try:
+    from .storage_utils import ensure_data_file
+    from .request_handler import handle_client
+except ImportError:
+    from storage_utils import ensure_data_file
+    from request_handler import handle_client
 
 
 def main() -> int:
     project_root = Path(__file__).resolve().parents[2]
     data_path = project_root / "server" / "resource" / "data.json"
+    init_path = project_root / "server" / "resource" / "init" / "instruction.txt"
     config_path = project_root / "server" / "src" / "config.py"
     try:
         spec = importlib.util.spec_from_file_location("server_src_config", config_path)
@@ -52,7 +58,7 @@ def main() -> int:
             conn, client = server_socket.accept()
             worker = threading.Thread(
                 target=handle_client,
-                args=(conn, client, cfg, log_path, data_path),
+                args=(conn, client, cfg, log_path, data_path, init_path),
                 daemon=True,
             )
             worker.start()

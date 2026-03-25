@@ -6,9 +6,13 @@ import socket
 from pathlib import Path
 
 
-def build_request(cfg: dict) -> bytes:
-    method = cfg["method"]
-    path = cfg["path"]
+def build_request(
+    cfg: dict,
+    path: str,
+    method: str = "GET",
+    connection: str = "close",
+    if_modified_since: str | None = None,
+) -> bytes:
     version = cfg["http_version"]
     host = cfg["host"]
     user_agent = cfg["user_agent"]
@@ -18,43 +22,100 @@ def build_request(cfg: dict) -> bytes:
         f"Host: {host}",
         f"User-Agent: {user_agent}",
         "Accept: */*",
-        "Connection: close",
-        "",
-        "",
+        f"Connection: {connection}",
     ]
+
+    if if_modified_since:
+        request_lines.append(f"If-Modified-Since: {if_modified_since}")
+
+    request_lines.extend(["", ""])
     return "\r\n".join(request_lines).encode("ascii")
 
 
-def receive_all(sock: socket.socket, buffer_size: int = 4096) -> bytes:
-    chunks = []
-    while True:
-        data = sock.recv(buffer_size)
-        if not data:
+def receive_response(sock: socket.socket, buffer_size: int = 4096) -> bytes:
+    data = b""
+    while b"\r\n\r\n" not in data:
+        chunk = sock.recv(buffer_size)
+        if not chunk:
+            return data
+        data += chunk
+
+    header_part, body_part = data.split(b"\r\n\r\n", 1)
+    header_text = header_part.decode("iso-8859-1", errors="replace")
+    content_length = 0
+    for line in header_text.split("\r\n")[1:]:
+        if line.lower().startswith("content-length:"):
+            try:
+                content_length = int(line.split(":", 1)[1].strip())
+            except ValueError:
+                content_length = 0
             break
-        chunks.append(data)
-    return b"".join(chunks)
+
+    while len(body_part) < content_length:
+        chunk = sock.recv(buffer_size)
+        if not chunk:
+            break
+        body_part += chunk
+
+    return header_part + b"\r\n\r\n" + body_part[:content_length]
 
 
 def print_response(raw_response: bytes) -> None:
     text = raw_response.decode("iso-8859-1", errors="replace")
     split_index = text.find("\r\n\r\n")
-    if split_index == -1:
-        print("[Client] Raw response (no header separator found):")
+    status_line = text.split("\r\n", 1)[0] if text else ""
+    if status_line.startswith("HTTP/"):
+        parts = status_line.split(" ", 2)
+        if len(parts) >= 3:
+            print(f"[Client] HTTP Status: {parts[1]} {parts[2]}")
+        else:
+            print(f"[Client] HTTP Status: {status_line}")
+    if split_index != -1:
+        print(text[split_index + 4:])
+    else:
         print(text)
-        return
 
-    header_text = text[:split_index]
-    body_text = text[split_index + 4 :]
-    header_lines = header_text.split("\r\n")
-    status_line = header_lines[0] if header_lines else "<missing status line>"
 
-    print("\n[Client] Response Status:")
-    print(status_line)
-    print("\n[Client] Response Headers:")
-    for line in header_lines[1:]:
-        print(line)
-    print("\n[Client] Response Body:")
-    print(body_text)
+def send_request(
+    cfg: dict,
+    path: str,
+    method: str = "GET",
+    connection: str = "close",
+    sock: socket.socket | None = None,
+    if_modified_since: str | None = None,
+) -> tuple[bool, bytes]:
+    host = cfg["host"]
+    port = cfg["port"]
+    timeout = cfg["timeout"]
+
+    try:
+        if sock is not None:
+            request_data = build_request(
+                cfg,
+                path=path,
+                method=method,
+                connection=connection,
+                if_modified_since=if_modified_since,
+            )
+            sock.sendall(request_data)
+            response = receive_response(sock)
+            return True, response
+
+        with socket.create_connection((host, port), timeout=timeout) as temp_sock:
+            temp_sock.settimeout(timeout)
+            request_data = build_request(
+                cfg,
+                path=path,
+                method=method,
+                connection=connection,
+                if_modified_since=if_modified_since,
+            )
+            temp_sock.sendall(request_data)
+            response = receive_response(temp_sock)
+            return True, response
+    except Exception as exc:
+        print(f"[Client] Request failed: {exc}")
+        return False, b""
 
 
 def main() -> int:
@@ -74,22 +135,69 @@ def main() -> int:
     host = cfg["host"]
     port = cfg["port"]
     timeout = cfg["timeout"]
-    request_line = f"{cfg['method']} {cfg['path']} {cfg['http_version']}"
+    print(f"[Client] Connected to {host}:{port}\n")
 
-    print(f"[Client] Target: {host}:{port}")
-    print(f"[Client] Request: {request_line}")
+    mode_input = input("[Client] Connection mode (keep-alive/close) [keep-alive]: ").strip().lower()
+    connection_mode = "close" if mode_input == "close" else "keep-alive"
+    print(f"[Client] Mode: {connection_mode}\n")
 
+    persistent_sock: socket.socket | None = None
     try:
-        with socket.create_connection((host, port), timeout=timeout) as sock:
-            sock.settimeout(timeout)
-            request_data = build_request(cfg)
-            sock.sendall(request_data)
-            response = receive_all(sock)
-    except Exception as exc:
-        print(f"[Client] Request failed: {exc}")
-        return 1
+        if connection_mode == "keep-alive":
+            persistent_sock = socket.create_connection((host, port), timeout=timeout)
+            persistent_sock.settimeout(timeout)
 
-    print_response(response)
+        ok, response = send_request(
+            cfg,
+            "/init",
+            "GET",
+            connection=connection_mode,
+            sock=persistent_sock,
+        )
+        if not ok:
+            return 1
+        print_response(response)
+
+        while True:
+            try:
+                cmd = input("\n> ").strip()
+                if not cmd:
+                    continue
+
+                if cmd.lower() in ("quit", "exit"):
+                    break
+
+                if_modified_since = None
+                command_text = cmd
+                if "|" in cmd:
+                    command_text, header_value = cmd.split("|", 1)
+                    command_text = command_text.strip()
+                    if_modified_since = header_value.strip() or None
+
+                parts = command_text.split()
+                if len(parts) < 2:
+                    print("[Client] Invalid format. Use: METHOD PATH (e.g., GET /data)")
+                    continue
+
+                method = parts[0].upper()
+                path = parts[1]
+                ok, response = send_request(
+                    cfg,
+                    path,
+                    method,
+                    connection=connection_mode,
+                    sock=persistent_sock,
+                    if_modified_since=if_modified_since,
+                )
+                if ok:
+                    print_response(response)
+            except KeyboardInterrupt:
+                break
+    finally:
+        if persistent_sock is not None:
+            persistent_sock.close()
+    
+    print("\n[Client] Disconnected")
     return 0
 
 
