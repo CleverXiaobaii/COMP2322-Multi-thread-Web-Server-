@@ -88,19 +88,19 @@ def send_request(
     port = cfg["port"]
     timeout = cfg["timeout"]
 
-    try:
-        if sock is not None:
-            request_data = build_request(
-                cfg,
-                path=path,
-                method=method,
-                connection=connection,
-                if_modified_since=if_modified_since,
-            )
-            sock.sendall(request_data)
-            response = receive_response(sock)
-            return True, response
+    if sock is not None:
+        request_data = build_request(
+            cfg,
+            path=path,
+            method=method,
+            connection=connection,
+            if_modified_since=if_modified_since,
+        )
+        sock.sendall(request_data)
+        response = receive_response(sock)
+        return True, response
 
+    try:
         with socket.create_connection((host, port), timeout=timeout) as temp_sock:
             temp_sock.settimeout(timeout)
             request_data = build_request(
@@ -121,16 +121,13 @@ def send_request(
 def main() -> int:
     project_root = Path(__file__).resolve().parents[2]
     config_path = project_root / "client" / "src" / "config.py"
-    try:
-        spec = importlib.util.spec_from_file_location("client_src_config", config_path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError("invalid spec")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        cfg = module.CLIENT_CONFIG
-    except Exception:
+    spec = importlib.util.spec_from_file_location("client_src_config", config_path)
+    if spec is None or spec.loader is None:
         print("config加载失败")
         return 1
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    cfg = module.CLIENT_CONFIG
 
     host = cfg["host"]
     port = cfg["port"]
@@ -142,61 +139,58 @@ def main() -> int:
     print(f"[Client] Mode: {connection_mode}\n")
 
     persistent_sock: socket.socket | None = None
+    if connection_mode == "keep-alive":
+        persistent_sock = socket.create_connection((host, port), timeout=timeout)
+        persistent_sock.settimeout(timeout)
+
+    ok, response = send_request(
+        cfg,
+        "/init",
+        "GET",
+        connection=connection_mode,
+        sock=persistent_sock,
+    )
+    if not ok:
+        return 1
+    print_response(response)
+
     try:
-        if connection_mode == "keep-alive":
-            persistent_sock = socket.create_connection((host, port), timeout=timeout)
-            persistent_sock.settimeout(timeout)
-
-        ok, response = send_request(
-            cfg,
-            "/init",
-            "GET",
-            connection=connection_mode,
-            sock=persistent_sock,
-        )
-        if not ok:
-            return 1
-        print_response(response)
-
         while True:
-            try:
-                cmd = input("\n> ").strip()
-                if not cmd:
-                    continue
+            cmd = input("\n> ").strip()
+            if not cmd:
+                continue
 
-                if cmd.lower() in ("quit", "exit"):
-                    break
-
-                if_modified_since = None
-                command_text = cmd
-                if "|" in cmd:
-                    command_text, header_value = cmd.split("|", 1)
-                    command_text = command_text.strip()
-                    if_modified_since = header_value.strip() or None
-
-                parts = command_text.split()
-                if len(parts) < 2:
-                    print("[Client] Invalid format. Use: METHOD PATH (e.g., GET /data)")
-                    continue
-
-                method = parts[0].upper()
-                path = parts[1]
-                ok, response = send_request(
-                    cfg,
-                    path,
-                    method,
-                    connection=connection_mode,
-                    sock=persistent_sock,
-                    if_modified_since=if_modified_since,
-                )
-                if ok:
-                    print_response(response)
-            except KeyboardInterrupt:
+            if cmd.lower() in ("quit", "exit"):
                 break
-    finally:
-        if persistent_sock is not None:
-            persistent_sock.close()
-    
+
+            if_modified_since = None
+            command_text = cmd
+            if "|" in cmd:
+                command_text, header_value = cmd.split("|", 1)
+                command_text = command_text.strip()
+                if_modified_since = header_value.strip() or None
+
+            parts = command_text.split()
+            if len(parts) < 2:
+                print("[Client] Invalid format. Use: METHOD PATH (e.g., GET /data)")
+                continue
+
+            method = parts[0].upper()
+            path = parts[1]
+            ok, response = send_request(
+                cfg,
+                path,
+                method,
+                connection=connection_mode,
+                sock=persistent_sock,
+                if_modified_since=if_modified_since,
+            )
+            if ok:
+                print_response(response)
+    except KeyboardInterrupt:
+        pass
+    if persistent_sock is not None:
+        persistent_sock.close()
     print("\n[Client] Disconnected")
     return 0
 

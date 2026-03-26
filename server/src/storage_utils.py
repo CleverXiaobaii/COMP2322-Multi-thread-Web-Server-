@@ -42,10 +42,7 @@ def load_data(data_path: Path) -> dict:
 
 
 def is_not_modified(data_path: Path, if_modified_since: str) -> bool:
-    try:
-        since = parsedate_to_datetime(if_modified_since)
-    except (TypeError, ValueError):
-        return False
+    since = parsedate_to_datetime(if_modified_since)
     if since.tzinfo is None:
         since = since.replace(tzinfo=datetime.timezone.utc)
 

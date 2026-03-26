@@ -21,19 +21,13 @@ def read_request_header(
 
 
 def parse_request_line(raw_header: bytes) -> tuple[Optional[str], Optional[tuple[str, str, str]]]:
-    try:
-        header_text = raw_header.decode("iso-8859-1", errors="replace")
-    except Exception:
-        return "Decode failed", None
-
+    header_text = raw_header.decode("iso-8859-1", errors="replace")
     lines = header_text.split("\r\n")
     if not lines or not lines[0].strip():
         return "Missing request line", None
-
     parts = lines[0].split()
     if len(parts) != 3:
         return "Malformed request line", None
-
     method, path, version = parts
     return None, (method, path, version)
 

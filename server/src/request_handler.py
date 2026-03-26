@@ -1,3 +1,11 @@
+def handle_head(path: str, headers: dict[str, str], data_path: Path, init_path: Path) -> tuple[int, bytes]:
+    # 复用GET逻辑获取响应头，但body置空
+    status, response = handle_get(path, headers, data_path, init_path)
+    # 找到header和body的分界，去除body
+    if b"\r\n\r\n" in response:
+        header_end = response.index(b"\r\n\r\n") + 4
+        response = response[:header_end]
+    return status, response
 from __future__ import annotations
 
 import json
@@ -5,35 +13,20 @@ import socket
 from http import HTTPStatus
 from pathlib import Path
 
-try:
-    from .http_utils import (
-        build_response,
-        build_response_with_headers,
-        parse_headers,
-        parse_http_request,
-        parse_request_line,
-        read_request_header,
-    )
-    from .storage_utils import format_last_modified, is_not_modified, load_data, read_instruction, write_log
-except ImportError:
-    from http_utils import (
-        build_response,
-        build_response_with_headers,
-        parse_headers,
-        parse_http_request,
-        parse_request_line,
-        read_request_header,
-    )
-    from storage_utils import format_last_modified, is_not_modified, load_data, read_instruction, write_log
+from .http_utils import (
+    build_response,
+    build_response_with_headers,
+    parse_headers,
+    parse_http_request,
+    parse_request_line,
+    read_request_header,
+)
+from .storage_utils import format_last_modified, is_not_modified, load_data, read_instruction, write_log
 
 
 def handle_get(path: str, headers: dict[str, str], data_path: Path, init_path: Path) -> tuple[int, bytes]:
     if path == "/init":
-        try:
-            instruction = read_instruction(init_path)
-        except Exception:
-            return 400, build_response(400, "Bad Request", "Bad Request\n")
-
+        instruction = read_instruction(init_path)
         body = instruction if instruction.endswith("\n") else instruction + "\n"
         return 200, build_response(200, "OK", body)
 
@@ -49,11 +42,8 @@ def handle_get(path: str, headers: dict[str, str], data_path: Path, init_path: P
         response = build_response_with_headers(304, "Not Modified", "", [f"Last-Modified: {last_modified}"])
         return 304, response
 
-    try:
-        data = load_data(data_path)
-    except Exception:
-        return 400, build_response(400, "Bad Request", "Bad Request\n")
-
+    data = load_data(data_path)
+    
     if path == "/data":
         payload = json.dumps(data, ensure_ascii=False)
         last_modified = format_last_modified(data_path)
@@ -122,20 +112,12 @@ def handle_client(
     conn.settimeout(5)
     try:
         while True:
-            #request_line_for_log = "<unparsed>"
-            #status = 400
             ok, method, path, headers, request_line_for_log, status, response = preprocess_request(conn, client, cfg)
             if not ok:
                 if status == 0:
                     return
                 conn.sendall(response)
-                write_log(
-                    log_path,
-                    client[0],
-                    client[1],
-                    request_line_for_log,
-                    status,
-                )
+                write_log(log_path, client[0], client[1], request_line_for_log, status,)
                 return
 
             wants_keep_alive = headers.get("connection", "").lower() == "keep-alive"
@@ -145,18 +127,14 @@ def handle_client(
                 status, response = handle_get(path, headers, data_path, init_path)
             elif method == "POST":
                 status, response = handle_post(path, headers, data_path, init_path)
+            elif method == "HEAD":
+                status, response = handle_head(path, headers, data_path, init_path)
             else:
                 status, response = 400, build_response(400, "Bad Request", "Bad Request\n")
 
             response = response.replace(b"Connection: close", f"Connection: {response_connection}".encode("ascii"), 1)
             conn.sendall(response)
-            write_log(
-                log_path,
-                client[0],
-                client[1],
-                request_line_for_log,
-                status,
-            )
+            write_log(log_path, client[0], client[1], request_line_for_log, status,)
 
             if response_connection == "close":
                 return
@@ -165,5 +143,4 @@ def handle_client(
     except Exception as exc:
         print(f"[Worker Error] {client[0]}:{client[1]} -> {exc}")
         write_log(log_path, client[0], client[1], "<error>", 400)
-    finally:
-        conn.close()
+    conn.close()
