@@ -12,11 +12,12 @@ LOG_LOCK = threading.Lock()
 DATA_LOCK = threading.Lock()
 
 
-def write_log(log_path: Path, client_ip: str, client_port: int, request_line: str, status_code: int) -> None:
+def write_log(log_path: Path, client_ip: str, client_port: int, request_line: str, status_code: int, last_modified: str = "-", if_modified_since: str = "-") -> None:
     reason = HTTPStatus(status_code).phrase if status_code in HTTPStatus._value2member_map_ else "Unknown"
     status = f"{status_code} {reason}"
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_line = f'{timestamp} {client_ip}:{client_port} "{request_line}" {status}\n'
+    # 新增last_modified和if_modified_since字段
+    log_line = f'{timestamp} {client_ip}:{client_port} "{request_line}" {status} Last-Modified: {last_modified} If-Modified-Since: {if_modified_since}\n'
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with LOG_LOCK:
         with log_path.open("a", encoding="utf-8") as fp:

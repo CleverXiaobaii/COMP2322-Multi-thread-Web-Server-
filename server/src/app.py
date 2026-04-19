@@ -6,15 +6,13 @@ import socket
 import threading
 from pathlib import Path
 
-try:
-    from .storage_utils import ensure_data_file
-    from .request_handler import handle_client
-except ImportError:
-    from storage_utils import ensure_data_file
-    from request_handler import handle_client
+
+from storage_utils import ensure_data_file
+from request_handler import handle_client
 
 
 def main() -> int:
+    #load data
     project_root = Path(__file__).resolve().parents[2]
     data_path = project_root / "server" / "resource" / "data.json"
     init_path = project_root / "server" / "resource" / "init" / "instruction.txt"
@@ -33,6 +31,8 @@ def main() -> int:
 
     ensure_data_file(data_path)
 
+
+    #start a server listening on 127.0.0.1:8080
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
@@ -46,6 +46,8 @@ def main() -> int:
     print(f"First-stage server listening on {cfg['host']}:{cfg['port']}")
     print(f"Logging to {log_path}")
 
+
+    #if a client connects, start a new thread to handle the request and log the request line and response status code to server.log
     try:
         while True:
             conn, client = server_socket.accept()

@@ -1,11 +1,3 @@
-def handle_head(path: str, headers: dict[str, str], data_path: Path, init_path: Path) -> tuple[int, bytes]:
-    # 复用GET逻辑获取响应头，但body置空
-    status, response = handle_get(path, headers, data_path, init_path)
-    # 找到header和body的分界，去除body
-    if b"\r\n\r\n" in response:
-        header_end = response.index(b"\r\n\r\n") + 4
-        response = response[:header_end]
-    return status, response
 from __future__ import annotations
 
 import json
@@ -13,7 +5,7 @@ import socket
 from http import HTTPStatus
 from pathlib import Path
 
-from .http_utils import (
+from http_utils import (
     build_response,
     build_response_with_headers,
     parse_headers,
@@ -21,14 +13,46 @@ from .http_utils import (
     parse_request_line,
     read_request_header,
 )
-from .storage_utils import format_last_modified, is_not_modified, load_data, read_instruction, write_log
+
+from storage_utils import format_last_modified, is_not_modified, load_data, read_instruction, write_log
 
 
 def handle_get(path: str, headers: dict[str, str], data_path: Path, init_path: Path) -> tuple[int, bytes]:
+
     if path == "/init":
         instruction = read_instruction(init_path)
         body = instruction if instruction.endswith("\n") else instruction + "\n"
         return 200, build_response(200, "OK", body)
+
+    # 新增 /logo 图片返回，支持 Last-Modified/If-Modified-Since
+    if path == "/logo":
+        logo_path = Path(__file__).parent.parent / "resource" / "logo.jpg"
+        if not logo_path.exists():
+            return 404, build_response(404, "File Not Found", "File Not Found\n")
+        last_modified = format_last_modified(logo_path)
+        if_modified_since = headers.get("if-modified-since")
+        if if_modified_since and is_not_modified(logo_path, if_modified_since):
+            # 未修改，返回304
+            resp_headers = [f"Last-Modified: {last_modified}"]
+            response = build_response_with_headers(304, "Not Modified", b"", resp_headers)
+            return 304, response
+        try:
+            with open(logo_path, "rb") as f:
+                img_data = f.read()
+            # 手动构造图片响应头
+            headers = [
+                "HTTP/1.1 200 OK",
+                "Content-Type: image/jpeg",
+                f"Content-Length: {len(img_data)}",
+                f"Last-Modified: {last_modified}",
+                "Connection: close",
+                "",
+                ""
+            ]
+            response = "\r\n".join(headers).encode("ascii") + img_data
+            return 200, response
+        except Exception:
+            return 500, build_response(500, "Internal Server Error", "Internal Server Error\n")
 
     if ".." in path:
         return 403, build_response(403, "Forbidden", "Forbidden\n")
@@ -37,16 +61,15 @@ def handle_get(path: str, headers: dict[str, str], data_path: Path, init_path: P
         return 404, build_response(404, "File Not Found", "File Not Found\n")
 
     if_modified_since = headers.get("if-modified-since")
+    last_modified = format_last_modified(data_path)
     if if_modified_since and is_not_modified(data_path, if_modified_since):
-        last_modified = format_last_modified(data_path)
         response = build_response_with_headers(304, "Not Modified", "", [f"Last-Modified: {last_modified}"])
+        # 日志由 handle_client 统一写入
         return 304, response
 
     data = load_data(data_path)
-    
     if path == "/data":
         payload = json.dumps(data, ensure_ascii=False)
-        last_modified = format_last_modified(data_path)
         response = build_response_with_headers(200, "OK", payload + "\n", [f"Last-Modified: {last_modified}"])
         return 200, response
 
@@ -59,14 +82,18 @@ def handle_get(path: str, headers: dict[str, str], data_path: Path, init_path: P
         return 404, build_response(404, "File Not Found", "File Not Found\n")
 
     payload = json.dumps({key: data[key]}, ensure_ascii=False)
-    last_modified = format_last_modified(data_path)
     response = build_response_with_headers(200, "OK", payload + "\n", [f"Last-Modified: {last_modified}"])
     return 200, response
 
+def handle_head(path: str, headers: dict[str, str], data_path: Path, init_path: Path) -> tuple[int, bytes]:
+    # 复用GET逻辑获取响应头，但body置空
+    status, response = handle_get(path, headers, data_path, init_path)
+    # 找到header和body的分界，去除body
+    if b"\r\n\r\n" in response:
+        header_end = response.index(b"\r\n\r\n") + 4
+        response = response[:header_end]
+    return status, response
 
-def handle_post(path: str, headers: dict[str, str], data_path: Path, init_path: Path) -> tuple[int, bytes]:
-    _ = (path, headers, data_path, init_path)
-    return 400, build_response(400, "Bad Request", "Bad Request\n")
 
 
 def preprocess_request(
@@ -109,7 +136,7 @@ def handle_client(
     data_path: Path,
     init_path: Path,
 ) -> None:
-    conn.settimeout(5)
+    conn.settimeout(60)
     try:
         while True:
             ok, method, path, headers, request_line_for_log, status, response = preprocess_request(conn, client, cfg)
@@ -123,18 +150,28 @@ def handle_client(
             wants_keep_alive = headers.get("connection", "").lower() == "keep-alive"
             response_connection = "keep-alive" if wants_keep_alive else "close"
 
+            # 仅GET/HEAD处理缓存头和日志
             if method == "GET":
                 status, response = handle_get(path, headers, data_path, init_path)
+                last_modified = format_last_modified(data_path)
+                if_modified_since = headers.get("if-modified-since", "-")
             elif method == "POST":
                 status, response = handle_post(path, headers, data_path, init_path)
+                last_modified = "-"
+                if_modified_since = "-"
             elif method == "HEAD":
                 status, response = handle_head(path, headers, data_path, init_path)
+                last_modified = format_last_modified(data_path)
+                if_modified_since = headers.get("if-modified-since", "-")
             else:
                 status, response = 400, build_response(400, "Bad Request", "Bad Request\n")
+                last_modified = "-"
+                if_modified_since = "-"
 
             response = response.replace(b"Connection: close", f"Connection: {response_connection}".encode("ascii"), 1)
             conn.sendall(response)
-            write_log(log_path, client[0], client[1], request_line_for_log, status,)
+            # 写详细日志
+            write_log(log_path, client[0], client[1], request_line_for_log, status, last_modified, if_modified_since)
 
             if response_connection == "close":
                 return

@@ -33,6 +33,10 @@ def build_request(
 
 
 def receive_response(sock: socket.socket, buffer_size: int = 4096) -> bytes:
+    return receive_response_with_method(sock, buffer_size, method="GET")
+
+
+def receive_response_with_method(sock: socket.socket, buffer_size: int = 4096, method: str = "GET") -> bytes:
     data = b""
     while b"\r\n\r\n" not in data:
         chunk = sock.recv(buffer_size)
@@ -41,6 +45,10 @@ def receive_response(sock: socket.socket, buffer_size: int = 4096) -> bytes:
         data += chunk
 
     header_part, body_part = data.split(b"\r\n\r\n", 1)
+    if method.upper() == "HEAD":
+        # HEAD 响应没有 body，直接返回 header
+        return header_part + b"\r\n\r\n"
+
     header_text = header_part.decode("iso-8859-1", errors="replace")
     content_length = 0
     for line in header_text.split("\r\n")[1:]:
@@ -50,14 +58,39 @@ def receive_response(sock: socket.socket, buffer_size: int = 4096) -> bytes:
             except ValueError:
                 content_length = 0
             break
-
-    while len(body_part) < content_length:
+    # ...existing code...
+    # 读取 body
+    body = body_part
+    while len(body) < content_length:
         chunk = sock.recv(buffer_size)
         if not chunk:
             break
-        body_part += chunk
+        body += chunk
+    return header_part + b"\r\n\r\n" + body
 
-    return header_part + b"\r\n\r\n" + body_part[:content_length]
+
+# 新增：请求 /logo 并保存图片
+def fetch_logo_and_save(cfg: dict):
+    import os
+    path = "/logo"
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.connect((cfg["host"], cfg["port"]))
+        req = build_request(cfg, path, method="GET")
+        sock.sendall(req)
+        resp = receive_response(sock)
+    # 解析响应头和体
+    header, body = resp.split(b"\r\n\r\n", 1)
+    status_line = header.split(b"\r\n", 1)[0].decode()
+    if "200" not in status_line:
+        print("[ERROR] 获取 logo 失败：", status_line)
+        return
+    # 保存图片
+    save_dir = Path(__file__).parents[1] / "resource"
+    os.makedirs(save_dir, exist_ok=True)
+    save_path = save_dir / "logo.jpg"
+    with open(save_path, "wb") as f:
+        f.write(body)
+    print(f"[INFO] logo.jpg 已保存到 {save_path}")
 
 
 def print_response(raw_response: bytes) -> None:
@@ -97,7 +130,7 @@ def send_request(
             if_modified_since=if_modified_since,
         )
         sock.sendall(request_data)
-        response = receive_response(sock)
+        response = receive_response_with_method(sock, method=method)
         return True, response
 
     try:
@@ -111,7 +144,7 @@ def send_request(
                 if_modified_since=if_modified_since,
             )
             temp_sock.sendall(request_data)
-            response = receive_response(temp_sock)
+            response = receive_response_with_method(temp_sock, method=method)
             return True, response
     except Exception as exc:
         print(f"[Client] Request failed: {exc}")
@@ -177,16 +210,20 @@ def main() -> int:
 
             method = parts[0].upper()
             path = parts[1]
-            ok, response = send_request(
-                cfg,
-                path,
-                method,
-                connection=connection_mode,
-                sock=persistent_sock,
-                if_modified_since=if_modified_since,
-            )
-            if ok:
-                print_response(response)
+            # 如果是 GET /logo，调用专用保存逻辑
+            if method == "GET" and path == "/logo":
+                fetch_logo_and_save(cfg)
+            else:
+                ok, response = send_request(
+                    cfg,
+                    path,
+                    method,
+                    connection=connection_mode,
+                    sock=persistent_sock,
+                    if_modified_since=if_modified_since,
+                )
+                if ok:
+                    print_response(response)
     except KeyboardInterrupt:
         pass
     if persistent_sock is not None:
