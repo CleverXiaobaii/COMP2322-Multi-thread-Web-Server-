@@ -1,0 +1,52 @@
+# Server Program Design and Implementation Summary
+
+## Overview
+This server is a multi-threaded HTTP/1.1 web server implemented in Python 3. It supports basic HTTP methods (GET, HEAD), conditional requests (If-Modified-Since/Last-Modified), and serves both static and dynamic content. The design emphasizes modularity, robustness, and clarity, making it easy to extend and maintain.
+
+## Key Design Points
+- **Multi-threaded Architecture:**
+  - Each client connection is handled in a separate thread, allowing concurrent processing of multiple clients.
+  - Thread safety is ensured by limiting shared state and using per-connection resources.
+
+- **Request Parsing and Routing:**
+  - Raw HTTP requests are parsed to extract method, path, headers, and version.
+  - Requests are routed to handler functions (`handle_get`, `handle_head`) based on the HTTP method.
+  - Only GET and HEAD are supported; POST and others return 405/400 as appropriate.
+
+- **Static and Dynamic Content:**
+  - `/init` returns a welcome/instruction message from a text file.
+  - `/logo` serves a static image file with correct Content-Type and Last-Modified headers.
+  - `/data` and `/data/<key>` serve JSON data from a file, supporting conditional GET/HEAD.
+
+- **Conditional Requests:**
+  - Implements Last-Modified and If-Modified-Since for `/logo` and `/data`, returning 304 Not Modified when appropriate.
+  - HEAD requests reuse GET logic but only return headers (no body).
+
+- **Error Handling:**
+  - Robust error handling for malformed requests, missing files, forbidden paths, and internal errors.
+  - All errors are logged with client info and request details.
+
+- **Logging:**
+  - Each request and response is logged, including method, path, status, and relevant headers.
+  - Logs are written to a file for auditing and debugging.
+
+- **Configuration:**
+  - Server settings (host, port, etc.) are managed via `server/src/config.py` for easy modification.
+
+## Implementation Highlights
+- Modular code structure: request parsing, response building, and business logic are separated for clarity.
+- Uses only Python standard libraries for maximum portability.
+- Defensive programming: all edge cases and protocol violations are handled gracefully.
+- Easy to extend: new endpoints or features can be added by implementing new handler functions.
+
+## Extensibility
+- The server can be extended to support more HTTP methods, authentication, or richer APIs by adding new handler functions and updating the routing logic.
+- Static file serving and directory listing can be added with minimal changes.
+
+## Limitations
+- No HTTPS support (plain HTTP only).
+- No persistent storage beyond the provided data file.
+- Not suitable for production-scale workloads, but ideal for teaching, prototyping, and controlled environments.
+
+## Conclusion
+This server demonstrates a clean, robust, and extensible approach to building a multi-threaded HTTP server in Python, with a focus on protocol correctness, modularity, and maintainability.

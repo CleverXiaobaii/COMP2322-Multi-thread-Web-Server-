@@ -1,62 +1,52 @@
-# COMP2322-Multi-thread-Web-Server-
+# How to Compile and Run the Multi-thread Web Server Project
 
-## First Stage (Framework)
+## Prerequisites
+- Python 3.10 or above
+- Recommended: Use a virtual environment (venv)
 
-This repository now includes a first-stage multi-threaded web server implemented with
-basic socket programming in Python.
 
-Current first-stage capabilities:
+## 1. Activate Python Virtual Environment
+The project already includes a `.venv` virtual environment in the root directory.
+To activate it:
+```
+cd <project root directory>
+source .venv/bin/activate
+```
+If you need to install dependencies (in case of a fresh clone or update):
+```
+pip install -r tools/requirements-pdf.txt
+```
 
-- Accept TCP connections on configured host and port.
-- Create one worker thread per client connection.
-- Read and print the raw HTTP request header.
-- Parse the request line in a basic way.
-- Write request records to a log file.
-- Return a minimal HTTP response and close the connection.
+## 2. Start the Server
+```
+cd server/src
+python app.py
+```
 
-Not yet implemented in first stage:
+- The server will listen on the configured port (default: 8080).
+- You can modify `server/src/config.py` and `client/src/config.py` for basic configuration (host, port, etc).
 
-- Full GET/HEAD file serving.
-- 304/403/404 complete behavior.
-- Last-Modified and If-Modified-Since handling.
-- Persistent keep-alive handling.
+## 3. Run the Client
 
-## Project Structure
+Open a new terminal:
+```
+cd <project root directory>/client/src
+python app.py
+```
 
-- server/src: server-side source code.
-- server/src/config.py: server configuration.
-- client/src: client-side source code.
+- Follow the on-screen prompts to interact with the server.
+- Example commands:
+  - `GET /data`
+  - `GET /logo`
+  - `HEAD /data`
+  - `quit` (to exit)
 
-## Run
+## 4. Notes
+- All dependencies are pure Python, no compilation is needed.
+- For PDF extraction tools, see tools/read_pdf_and_save.py and requirements-pdf.txt.
+- Logs and resources are stored in the respective resource/ folders.
 
-1. Edit server configuration in server/src/config.py.
-2. Start server from project root:
-
-python3 -m server.src.app
-
-Configuration fields:
-
-- host
-- port
-- log_path
-- buffer_size
-- max_header_bytes
-
-## Quick Test
-
-In another terminal:
-
-curl -i http://127.0.0.1:8080/
-
-Then check server output and configured log file for request records.
-
-## Client First Stage
-
-The first-stage client is in client/src/app.py and uses client/src/config.py.
-
-Run one client in one terminal:
-
-python3 -m client.src.app
-
-To run multiple clients, open multiple terminals and run the same command in each
-terminal. Each terminal controls its own independent client instance.
+## 5. Troubleshooting
+- Ensure the server is running before starting the client.
+- If ports are in use, change the port in config.py.
+- For any issues, check the terminal output for error messages.
