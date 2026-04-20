@@ -1,26 +1,13 @@
 # How to Compile and Run the Multi-thread Web Server Project
 
-## Prerequisites
+## 1.Prerequisites
 - Python 3.10 or above
 - Recommended: Use a virtual environment (venv)
-
-
-## 1. Activate Python Virtual Environment
-The project already includes a `.venv` virtual environment in the root directory.
-To activate it:
-```
-cd <project root directory>
-source .venv/bin/activate
-```
-If you need to install dependencies (in case of a fresh clone or update):
-```
-pip install -r tools/requirements-pdf.txt
-```
+- Go to the project root directory and do the following
 
 ## 2. Start the Server
 ```
-cd server/src
-python app.py
+python server/src/app.py
 ```
 
 - The server will listen on the configured port (default: 8080).

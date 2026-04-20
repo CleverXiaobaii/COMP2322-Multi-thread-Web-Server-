@@ -64,7 +64,8 @@ def build_response_with_headers(
     extra_headers: Optional[list[str]] = None,
     connection: str = "close",
 ) -> bytes:
-    body_bytes = body.encode("utf-8")
+    if isinstance(body, str):
+        body_bytes = body.encode("utf-8")
     headers = [
         f"HTTP/1.1 {status_code} {reason}",
         "Content-Type: application/json; charset=utf-8",
