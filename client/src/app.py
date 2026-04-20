@@ -6,13 +6,7 @@ import socket
 from pathlib import Path
 
 
-def build_request(
-    cfg: dict,
-    path: str,
-    method: str = "GET",
-    connection: str = "close",
-    if_modified_since: str | None = None,
-) -> bytes:
+def build_request(cfg: dict, path: str, method: str = "GET", connection: str = "close", if_modified_since: str | None = None) -> bytes:
     version = cfg["http_version"]
     host = cfg["host"]
     user_agent = cfg["user_agent"]
@@ -25,15 +19,12 @@ def build_request(
         f"Connection: {connection}",
     ]
 
-    if if_modified_since:
+    # Only allow If-Modified-Since for GET/HEAD /logo
+    if if_modified_since and method.upper() in ("GET", "HEAD") and path == "/logo":
         request_lines.append(f"If-Modified-Since: {if_modified_since}")
 
     request_lines.extend(["", ""])
     return "\r\n".join(request_lines).encode("ascii")
-
-
-def receive_response(sock: socket.socket, buffer_size: int = 4096) -> bytes:
-    return receive_response_with_method(sock, buffer_size, method="GET")
 
 
 def receive_response_with_method(sock: socket.socket, buffer_size: int = 4096, method: str = "GET") -> bytes:
@@ -43,12 +34,10 @@ def receive_response_with_method(sock: socket.socket, buffer_size: int = 4096, m
         if not chunk:
             return data
         data += chunk
-
     header_part, body_part = data.split(b"\r\n\r\n", 1)
     if method.upper() == "HEAD":
-        # HEAD 响应没有 body，直接返回 header
-        return header_part + b"\r\n\r\n"
-
+        # HEAD 请求只返回 header，不读取 body
+        return header_part, b""
     header_text = header_part.decode("iso-8859-1", errors="replace")
     content_length = 0
     for line in header_text.split("\r\n")[1:]:
@@ -58,39 +47,17 @@ def receive_response_with_method(sock: socket.socket, buffer_size: int = 4096, m
             except ValueError:
                 content_length = 0
             break
-    # ...existing code...
-    # 读取 body
     body = body_part
     while len(body) < content_length:
         chunk = sock.recv(buffer_size)
         if not chunk:
             break
         body += chunk
-    return header_part + b"\r\n\r\n" + body
+    return header_part, body
 
 
 # 新增：请求 /logo 并保存图片
-def fetch_logo_and_save(cfg: dict):
-    import os
-    path = "/logo"
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.connect((cfg["host"], cfg["port"]))
-        req = build_request(cfg, path, method="GET")
-        sock.sendall(req)
-        resp = receive_response(sock)
-    # 解析响应头和体
-    header, body = resp.split(b"\r\n\r\n", 1)
-    status_line = header.split(b"\r\n", 1)[0].decode()
-    if "200" not in status_line:
-        print("[ERROR] 获取 logo 失败：", status_line)
-        return
-    # 保存图片
-    save_dir = Path(__file__).parents[1] / "resource"
-    os.makedirs(save_dir, exist_ok=True)
-    save_path = save_dir / "logo.jpg"
-    with open(save_path, "wb") as f:
-        f.write(body)
-    print(f"[INFO] logo.jpg 已保存到 {save_path}")
+
 
 
 def print_response(raw_response: bytes) -> None:
@@ -156,7 +123,7 @@ def main() -> int:
     config_path = project_root / "client" / "src" / "config.py"
     spec = importlib.util.spec_from_file_location("client_src_config", config_path)
     if spec is None or spec.loader is None:
-        print("config加载失败")
+        print("Failed to load config")
         return 1
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -183,9 +150,11 @@ def main() -> int:
         connection=connection_mode,
         sock=persistent_sock,
     )
-    if not ok:
+    if ok:
+        header, body = response if isinstance(response, tuple) else (response, b"")
+        print_response(header + b"\r\n\r\n" + body)
+    else:
         return 1
-    print_response(response)
 
     try:
         while True:
@@ -210,20 +179,37 @@ def main() -> int:
 
             method = parts[0].upper()
             path = parts[1]
-            # 如果是 GET /logo，调用专用保存逻辑
+            # Auto add If-Modified-Since for /logo requests
             if method == "GET" and path == "/logo":
-                fetch_logo_and_save(cfg)
+                save_dir = Path(__file__).parents[1] / "resource"
+                save_path = save_dir / "logo.jpg"
+                if save_path.exists():
+                    if_modified_since = "Mon, 20 Apr 2026 00:00:00 GMT"
+            ok, resp = send_request(
+                cfg,
+                path,
+                method,
+                connection=connection_mode,
+                sock=persistent_sock,
+                if_modified_since=if_modified_since,
+            )
+            if not ok:
+                continue
+            # HEAD request only prints header, does not read body
+            if method == "HEAD":
+                header = resp[0] if isinstance(resp, tuple) else resp
+                print_response(header + b"\r\n\r\n")
+                continue
+            header, body = resp if isinstance(resp, tuple) else (resp, b"")
+            status_line = header.split(b"\r\n", 1)[0].decode()
+            if method == "GET" and path == "/logo" and "200" in status_line:
+                import os
+                os.makedirs(save_dir, exist_ok=True)
+                with open(save_path, "wb") as f:
+                    f.write(body)
+                print(f"[INFO] logo.jpg saved to {save_path}")
             else:
-                ok, response = send_request(
-                    cfg,
-                    path,
-                    method,
-                    connection=connection_mode,
-                    sock=persistent_sock,
-                    if_modified_since=if_modified_since,
-                )
-                if ok:
-                    print_response(response)
+                print_response(header + b"\r\n\r\n" + body)
     except KeyboardInterrupt:
         pass
     if persistent_sock is not None:

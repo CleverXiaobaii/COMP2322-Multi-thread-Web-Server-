@@ -16,7 +16,7 @@ def write_log(log_path: Path, client_ip: str, client_port: int, request_line: st
     reason = HTTPStatus(status_code).phrase if status_code in HTTPStatus._value2member_map_ else "Unknown"
     status = f"{status_code} {reason}"
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    # 新增last_modified和if_modified_since字段
+    # add last_modified and if_modified_since attributes
     log_line = f'{timestamp} {client_ip}:{client_port} "{request_line}" {status} Last-Modified: {last_modified} If-Modified-Since: {if_modified_since}\n'
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with LOG_LOCK:
